@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tagnyilvántartás – Belépés</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="container">
+    <h2>Tagnyilvántartás – Belépés</h2>
+    <div class="card">
+      <div class="row">
+        <input id="email" type="email" placeholder="Email" style="min-width:280px;" />
+        <input id="password" type="password" placeholder="Jelszó" style="min-width:280px;" />
+        <button id="loginBtn">Belépés</button>
+      </div>
+      <p id="msg" class="muted"></p>
+    </div>
+  </div>
+
+<script>
+  const SUPABASE_URL = "PASTE_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY";
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  document.getElementById("loginBtn").addEventListener("click", async () => {
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const msg = document.getElementById("msg");
+
+    if (error) { msg.textContent = "Hiba: " + error.message; return; }
+    msg.textContent = "Sikeres belépés.";
+    window.location.href = "app.html";
+  });
+</script>
+</body>
+</html>

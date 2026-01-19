@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tagnyilvántartás</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div>
+      <h2>Tagnyilvántartás</h2>
+      <div class="muted" id="userInfo">Betöltés...</div>
+    </div>
+    <div class="row">
+      <button id="exportBtn">CSV export</button>
+      <button id="logoutBtn">Kilépés</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Keresés</h3>
+    <div class="row">
+      <input id="search" placeholder="Név / telefon / email..." style="min-width:320px;" />
+      <button id="refreshBtn">Frissítés</button>
+    </div>
+  </div>
+
+  <div class="card" id="createCard" style="display:none;">
+    <h3>Új tag felvétele</h3>
+    <div class="row">
+      <input id="nev" placeholder="Név*" style="min-width:260px;" />
+      <input id="telefon" placeholder="Telefon" />
+      <input id="email" placeholder="Email" />
+      <select id="tagdij_tipus">
+        <option value="eves">Éves</option>
+        <option value="havi">Havi</option>
+      </select>
+      <input id="tagdij_osszeg" type="number" placeholder="Tagdíj összeg" />
+    </div>
+    <div class="row">
+      <input id="utolso" type="date" />
+      <input id="kov" type="date" />
+      <select id="statusz">
+        <option value="aktiv">Aktív</option>
+        <option value="szuneteltet">Szüneteltet</option>
+        <option value="kilepett">Kilépett</option>
+      </select>
+      <button id="createBtn">Mentés</button>
+    </div>
+    <p class="muted" id="createMsg"></p>
+  </div>
+
+  <div class="card">
+    <h3>Tagok</h3>
+    <div id="tableWrap"></div>
+    <p class="muted" id="msg"></p>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = "PASTE_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY";
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  function todayISO(){
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function daysBetween(aIso, bIso){
+    const a = new Date(aIso + "T00:00:00");
+    const b = new Date(bIso + "T00:00:00");
+    return Math.round((b - a) / (1000*60*60*24));
+  }
+  function statusBadge(kovEsedek){
+    if(!kovEsedek) return `<span class="badge yellow">Nincs dátum</span>`;
+    const diff = daysBetween(kovEsedek, todayISO());
+    if (diff <= 0) return `<span class="badge green">Rendben</span>`;
+    if (diff <= 30) return `<span class="badge yellow">Lejárt (${diff} nap)</span>`;
+    return `<span class="badge red">Lejárt (${diff} nap)</span>`;
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[m]));
+  }
+
+  async function requireAuth(){
+    const { data: { session } } = await supabase.auth.getSession();
+    if(!session){ window.location.href = "index.html"; return null; }
+    return session;
+  }
+
+  async function getMyRole(){
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data, error } = await supabase.from("profiles").select("role").eq("user_id", user.id).maybeSingle();
+    if(error) throw error;
+    return (data && data.role) ? data.role : "olvaso";
+  }
+
+  async function loadMembers(){
+    const q = document.getElementById("search").value.trim();
+    let query = supabase.from("members").select("*").order("nev", { ascending: true });
+    if(q) query = query.or(`nev.ilike.%${q}%,telefon.ilike.%${q}%,email.ilike.%${q}%`);
+    const { data, error } = await query;
+    if(error) throw error;
+
+    window.__lastMembers = data || [];
+    document.getElementById("msg").textContent = `Találat: ${window.__lastMembers.length}`;
+    renderTable(window.__lastMembers);
+  }
+
+  function renderTable(rows){
+    const wrap = document.getElementById("tableWrap");
+    if(!rows.length){ wrap.innerHTML = "<p class='muted'>Nincs adat.</p>"; return; }
+
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Név</th><th>Telefon</th><th>Email</th><th>Státusz</th>
+            <th>Következő esedékesség</th><th>Tagdíj</th><th>Tagdíj státusz</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.nev||"")}</td>
+              <td>${escapeHtml(r.telefon||"")}</td>
+              <td>${escapeHtml(r.email||"")}</td>
+              <td>${escapeHtml(r.statusz||"")}</td>
+              <td>${escapeHtml(r.kov_esedekesseg_datum||"")}</td>
+              <td>${escapeHtml(String(r.tagdij_osszeg??""))} (${escapeHtml(r.tagdij_tipus||"")})</td>
+              <td>${statusBadge(r.kov_esedekesseg_datum)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>`;
+  }
+
+  function toCSV(rows){
+    const header = ["nev","telefon","email","statusz","tagdij_tipus","tagdij_osszeg","utolso_befizetes_datum","kov_esedekesseg_datum","megjegyzes"];
+    const lines = [header.join(";")];
+    for(const r of rows){
+      lines.push(header.map(k => `"${String(r[k]??"").replaceAll('"','""')}"`).join(";"));
+    }
+    return "\uFEFF" + lines.join("\n");
+  }
+  function download(filename, content){
+    const blob = new Blob([content], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function init(){
+    const session = await requireAuth();
+    if(!session) return;
+
+    const role = await getMyRole();
+    document.getElementById("userInfo").textContent = `Bejelentkezve: ${session.user.email} | Szerepkör: ${role}`;
+
+    if(role === "admin" || role === "penztaros"){
+      document.getElementById("createCard").style.display = "block";
+    }
+    await loadMembers();
+  }
+
+  document.getElementById("refreshBtn").addEventListener("click", loadMembers);
+  document.getElementById("search").addEventListener("input", () => {
+    clearTimeout(window.__t);
+    window.__t = setTimeout(loadMembers, 250);
+  });
+
+  document.getElementById("logoutBtn").addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    window.location.href = "index.html";
+  });
+
+  document.getElementById("exportBtn").addEventListener("click", () => {
+    download(`tagok_${todayISO()}.csv`, toCSV(window.__lastMembers || []));
+  });
+
+  document.getElementById("createBtn").addEventListener("click", async () => {
+    const payload = {
+      nev: document.getElementById("nev").value.trim(),
+      telefon: document.getElementById("telefon").value.trim() || null,
+      email: document.getElementById("email").value.trim() || null,
+      tagdij_tipus: document.getElementById("tagdij_tipus").value,
+      tagdij_osszeg: parseInt(document.getElementById("tagdij_osszeg").value || "0", 10),
+      utolso_befizetes_datum: document.getElementById("utolso").value || null,
+      kov_esedekesseg_datum: document.getElementById("kov").value || null,
+      statusz: document.getElementById("statusz").value
+    };
+
+    const msg = document.getElementById("createMsg");
+    if(!payload.nev){ msg.textContent = "A név kötelező."; return; }
+
+    const { error } = await supabase.from("members").insert(payload);
+    if(error){ msg.textContent = "Hiba: " + error.message; return; }
+
+    msg.textContent = "Sikeresen mentve.";
+    ["nev","telefon","email","tagdij_osszeg","utolso","kov"].forEach(id => document.getElementById(id).value = "");
+    await loadMembers();
+  });
+
+  init().catch(err => {
+    document.getElementById("msg").textContent = "Hiba: " + err.message;
+    console.error(err);
+  });
+</script>
+</body>
+</html>
