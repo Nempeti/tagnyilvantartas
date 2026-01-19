@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tagnyilvántartás</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="container">
@@ -60,10 +59,20 @@
   </div>
 </div>
 
-<script>
-  const SUPABASE_URL = "PASTE_SUPABASE_URL";
-  const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY";
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+  const SUPABASE_URL = "https://josqmjyzliggldsktbvq.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_V9Be60Va_gxgnD-S0LUhlw_BUinY7da";
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const userInfoEl = document.getElementById("userInfo");
+  const msgEl = document.getElementById("msg");
+  const tableWrap = document.getElementById("tableWrap");
+  const createCard = document.getElementById("createCard");
+  const createMsg = document.getElementById("createMsg");
+
+  function setMsg(t){ msgEl.textContent = t || ""; }
 
   function todayISO(){
     const d = new Date();
@@ -76,7 +85,7 @@
   }
   function statusBadge(kovEsedek){
     if(!kovEsedek) return `<span class="badge yellow">Nincs dátum</span>`;
-    const diff = daysBetween(kovEsedek, todayISO());
+    const diff = daysBetween(kovEsedek, todayISO()); // pozitív = lejárt
     if (diff <= 0) return `<span class="badge green">Rendben</span>`;
     if (diff <= 30) return `<span class="badge yellow">Lejárt (${diff} nap)</span>`;
     return `<span class="badge red">Lejárt (${diff} nap)</span>`;
@@ -88,35 +97,31 @@
   }
 
   async function requireAuth(){
-    const { data: { session } } = await supabase.auth.getSession();
-    if(!session){ window.location.href = "index.html"; return null; }
+    const { data: { session } } = await sb.auth.getSession();
+    if(!session){
+      window.location.href = "index.html";
+      return null;
+    }
     return session;
   }
 
   async function getMyRole(){
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data, error } = await supabase.from("profiles").select("role").eq("user_id", user.id).maybeSingle();
+    const { data: { user } } = await sb.auth.getUser();
+    const { data, error } = await sb
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
     if(error) throw error;
     return (data && data.role) ? data.role : "olvaso";
   }
 
-  async function loadMembers(){
-    const q = document.getElementById("search").value.trim();
-    let query = supabase.from("members").select("*").order("nev", { ascending: true });
-    if(q) query = query.or(`nev.ilike.%${q}%,telefon.ilike.%${q}%,email.ilike.%${q}%`);
-    const { data, error } = await query;
-    if(error) throw error;
-
-    window.__lastMembers = data || [];
-    document.getElementById("msg").textContent = `Találat: ${window.__lastMembers.length}`;
-    renderTable(window.__lastMembers);
-  }
-
   function renderTable(rows){
-    const wrap = document.getElementById("tableWrap");
-    if(!rows.length){ wrap.innerHTML = "<p class='muted'>Nincs adat.</p>"; return; }
-
-    wrap.innerHTML = `
+    if(!rows.length){
+      tableWrap.innerHTML = "<p class='muted'>Nincs adat.</p>";
+      return;
+    }
+    tableWrap.innerHTML = `
       <table>
         <thead>
           <tr>
@@ -132,12 +137,26 @@
               <td>${escapeHtml(r.email||"")}</td>
               <td>${escapeHtml(r.statusz||"")}</td>
               <td>${escapeHtml(r.kov_esedekesseg_datum||"")}</td>
-              <td>${escapeHtml(String(r.tagdij_osszeg??""))} (${escapeHtml(r.tagdij_tipus||"")})</td>
+              <td>${escapeHtml(String(r.tagdij_osszeg ?? ""))} (${escapeHtml(r.tagdij_tipus||"")})</td>
               <td>${statusBadge(r.kov_esedekesseg_datum)}</td>
             </tr>
           `).join("")}
         </tbody>
-      </table>`;
+      </table>
+    `;
+  }
+
+  async function loadMembers(){
+    const q = document.getElementById("search").value.trim();
+    let query = sb.from("members").select("*").order("nev", { ascending: true });
+    if(q) query = query.or(`nev.ilike.%${q}%,telefon.ilike.%${q}%,email.ilike.%${q}%`);
+
+    const { data, error } = await query;
+    if(error) throw error;
+
+    window.__lastMembers = data || [];
+    setMsg(`Találat: ${window.__lastMembers.length}`);
+    renderTable(window.__lastMembers);
   }
 
   function toCSV(rows){
@@ -161,11 +180,12 @@
     if(!session) return;
 
     const role = await getMyRole();
-    document.getElementById("userInfo").textContent = `Bejelentkezve: ${session.user.email} | Szerepkör: ${role}`;
+    userInfoEl.textContent = `Bejelentkezve: ${session.user.email} | Szerepkör: ${role}`;
 
     if(role === "admin" || role === "penztaros"){
-      document.getElementById("createCard").style.display = "block";
+      createCard.style.display = "block";
     }
+
     await loadMembers();
   }
 
@@ -176,7 +196,7 @@
   });
 
   document.getElementById("logoutBtn").addEventListener("click", async () => {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
     window.location.href = "index.html";
   });
 
@@ -185,6 +205,7 @@
   });
 
   document.getElementById("createBtn").addEventListener("click", async () => {
+    createMsg.textContent = "";
     const payload = {
       nev: document.getElementById("nev").value.trim(),
       telefon: document.getElementById("telefon").value.trim() || null,
@@ -196,19 +217,24 @@
       statusz: document.getElementById("statusz").value
     };
 
-    const msg = document.getElementById("createMsg");
-    if(!payload.nev){ msg.textContent = "A név kötelező."; return; }
+    if(!payload.nev){
+      createMsg.textContent = "A név kötelező.";
+      return;
+    }
 
-    const { error } = await supabase.from("members").insert(payload);
-    if(error){ msg.textContent = "Hiba: " + error.message; return; }
+    const { error } = await sb.from("members").insert(payload);
+    if(error){
+      createMsg.textContent = "Hiba: " + error.message;
+      return;
+    }
 
-    msg.textContent = "Sikeresen mentve.";
+    createMsg.textContent = "Sikeresen mentve.";
     ["nev","telefon","email","tagdij_osszeg","utolso","kov"].forEach(id => document.getElementById(id).value = "");
     await loadMembers();
   });
 
   init().catch(err => {
-    document.getElementById("msg").textContent = "Hiba: " + err.message;
+    setMsg("Hiba: " + err.message);
     console.error(err);
   });
 </script>
