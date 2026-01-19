@@ -5,37 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tagnyilvántartás – Belépés</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="container">
     <h2>Tagnyilvántartás – Belépés</h2>
+
     <div class="card">
       <div class="row">
-        <input id="email" type="email" placeholder="Email" style="min-width:280px;" />
-        <input id="password" type="password" placeholder="Jelszó" style="min-width:280px;" />
+        <input id="email" type="email" placeholder="Email" style="min-width:280px;" autocomplete="username" />
+        <input id="password" type="password" placeholder="Jelszó" style="min-width:280px;" autocomplete="current-password" />
         <button id="loginBtn">Belépés</button>
       </div>
+
       <p id="msg" class="muted"></p>
     </div>
   </div>
 
-<script>
-  const SUPABASE_URL = "PASTE_SUPABASE_URL";
-  const SUPABASE_ANON_KEY = "PASTE_SUPABASE_ANON_KEY";
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  <script>
+    // --- Supabase beállítások ---
+    const SUPABASE_URL = "https://josqmjyzliggldsktbvq.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_V9Be60Va_gxgnD-S0LUhlw_BUinY7da";
 
-  document.getElementById("loginBtn").addEventListener("click", async () => {
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
+    function setMsg(text) {
+      document.getElementById("msg").textContent = text || "";
+    }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    const msg = document.getElementById("msg");
+    async function init() {
+      // Megvárjuk, míg a supabase-js betölt (defer miatt ez általában már kész)
+      if (!window.supabase || !window.supabase.createClient) {
+        setMsg("Hiba: a Supabase kliens nem töltődött be. Frissítsd az oldalt (Ctrl+F5).");
+        return;
+      }
 
-    if (error) { msg.textContent = "Hiba: " + error.message; return; }
-    msg.textContent = "Sikeres belépés.";
-    window.location.href = "app.html";
-  });
-</script>
+      // ⚠️ Fontos: csak itt, csak egyszer hozzuk létre
+      const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      // Ha már be vagy jelentkezve, ugorjunk az app-ra
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        window.location.href = "app.html";
+        return;
+      }
+
+      const emailEl = document.getElementById("email");
+      const passEl = document.getElementById("password");
+      const btn = document.getElementById("loginBtn");
+
+      async function doLogin() {
+        setMsg("");
+        btn.disabled = true;
+
+        const email = emailEl.value.trim();
+        const password = passEl.value;
+
+        if (!email || !password) {
+          setMsg("Kérlek add meg az email címet és a jelszót.");
+          btn.disabled = false;
+          return;
+        }
+
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+
+        if (error) {
+          setMsg("Hiba: " + error.message);
+          btn.disabled = false;
+          return;
+        }
+
+        window.location.href = "app.html";
+      }
+
+      btn.addEventListener("click", doLogin);
+      passEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") doLogin();
+      });
+    }
+
+    init();
+  </script>
 </body>
 </html>
+
+
